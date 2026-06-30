@@ -1,0 +1,989 @@
+local Players = game:GetService('Players')
+local RunService = game:GetService('RunService')
+local UserInput = game:GetService('UserInputService')
+local Workspace = game:GetService('Workspace')
+local RepFirst = game:GetService('ReplicatedFirst')
+local RepStorage = game:GetService('ReplicatedStorage')
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Game Modules (Staggered Load)
+local CameraHandler, Neuron, Utils, VFXUtility, WeaponECS, TableUtils, GameplayHandler, HitHandler, States, DataHandler, DummyClient = nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
+local WeaponSystems = {}
+
+task.delay(1.5, function() pcall(function() local p = require(RepFirst:WaitForChild('neuron')) Neuron = p end) end)
+task.delay(2.5, function() pcall(function() CameraHandler = require(RepStorage.Modules.Handlers.CameraHandler) end) end)
+task.delay(3, function()
+    pcall(function() Utils = require(RepStorage:WaitForChild('Modules'):WaitForChild('Utils')) end)
+    task.wait(0.3)
+    pcall(function() VFXUtility = require(RepStorage:WaitForChild('Modules'):WaitForChild('VFXUtility')) end)
+    task.wait(0.3)
+    pcall(function() WeaponECS = require(RepStorage:WaitForChild('Modules'):WaitForChild('WeaponECS')) end)
+    task.wait(0.3)
+    pcall(function() TableUtils = require(RepStorage:WaitForChild('Modules'):WaitForChild('TableUtils')) end)
+    task.wait(0.3)
+    pcall(function()
+        local ecsFolder = RepStorage:WaitForChild('Modules'):WaitForChild('WeaponECS')
+        local systemsFolder = ecsFolder:WaitForChild('Systems')
+        for _, sys in ipairs(systemsFolder:GetChildren()) do
+            pcall(function() WeaponSystems[sys.Name] = require(sys) end)
+            task.wait(0.1)
+        end
+    end)
+end)
+task.delay(3.5, function()
+    pcall(function() GameplayHandler = require(RepStorage:WaitForChild('Modules'):WaitForChild('Handlers'):WaitForChild('GameplayHandler')) end)
+    task.wait(0.3)
+    pcall(function() HitHandler = require(RepStorage:WaitForChild('Modules'):WaitForChild('HitHandler')) end)
+    task.wait(0.3)
+    pcall(function() States = require(RepStorage:WaitForChild('Modules'):WaitForChild('States')) end)
+    task.wait(0.3)
+    pcall(function() DataHandler = require(RepStorage:WaitForChild('Modules'):WaitForChild('Handlers'):WaitForChild('DataHandler')) end)
+    task.wait(0.3)
+    pcall(function() DummyClient = require(RepStorage:WaitForChild('Modules'):WaitForChild('DummyClient')) end)
+end)
+
+local peuron = nil
+task.delay(1.5, function() pcall(function() peuron = require(RepFirst:WaitForChild('neuron')) end) end)
+
+local function resolve_player(player)
+    if not player then return end
+    if player.Character and player.Character.Parent then return end
+    if peuron then
+        local ok, neuron_char = pcall(function() return peuron:get_character(player) end)
+        if ok and neuron_char then player.Character = neuron_char end
+    end
+end
+
+task.spawn(function()
+    task.wait(4)
+    while true do
+        for _, v in ipairs(Players:GetPlayers()) do
+            if v ~= LocalPlayer and (not v.Character or not v.Character.Parent) then resolve_player(v) end
+        end
+        task.wait(2)
+    end
+end)
+
+-- LINORIA LOADER
+local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
+local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
+local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
+local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+
+local Window = Library:CreateWindow({
+    Title = 'Overload Hub',
+    Center = true,
+    AutoShow = true,
+    TabPadding = 8,
+    MenuFadeTime = 0.2
+})
+
+local Tabs = {
+    Combat = Window:AddTab('Combat'),
+    Visual = Window:AddTab('Visual'),
+    Misc = Window:AddTab('Misc'),
+    ['UI Settings'] = Window:AddTab('UI Settings'),
+}
+
+-- CONFIG
+local Aimbot_Enabled = false
+local Aimbot_ToggleMode = false
+local Aimbot_Method = 'CamLock'
+local Aimbot_Smoothness = 0.3
+local Aimbot_Visible_Check = true
+local Aimbot_Team_Check = false
+local Aimbot_Part = 'Head'
+local Aim_FOV = 150
+local FOV_Enabled = true
+local FOV_Color = Color3.fromRGB(255, 255, 255)
+
+local Aimbot_NoSleep = false
+local Aimbot_LockTarget = true
+local Aimbot_Predict = false
+local Aimbot_PredictX = 0.1
+local Aimbot_PredictY = 0.1
+local Aimbot_Resolve = false
+local Aimbot_Easing = true
+local Aimbot_Shake = false
+
+local Aim_CurrentTarget = nil
+
+local ESP_Enabled = true
+local Box_Enabled = true
+local Box_Color = Color3.fromRGB(255, 255, 255)
+local Name_Enabled = true
+local Name_Color = Color3.fromRGB(255, 255, 255)
+local Health_Enabled = true
+local Distance_Enabled = true
+local Tracer_Enabled = true
+local Tracer_Color = Color3.fromRGB(255, 255, 255)
+local Tracer_Origin = 'Bottom'
+local Head_Dot_Enabled = true
+local Head_Dot_Color = Color3.fromRGB(255, 0, 0)
+local ESP_TeamColors = false
+local ESP_MatchAware = false
+local ESP_SpectateDetect = false
+
+local BotESP_Enabled = false
+local BotESP_Color = Color3.fromRGB(0, 255, 140)
+local BotESP_FinisherColor = Color3.fromRGB(255, 50, 150)
+local BotESP_ShowID = false
+local BotESP_Pool = {}
+
+local Rainbow_Enabled = false
+local Rainbow_Hue = 0
+local Rainbow_Speed = 0.003
+local Rainbow_Targets = { 'Box', 'Name', 'Tracer', 'HeadDot', 'FOV' }
+
+local KF_Enabled = false
+local KF_MaxEntries = 5
+local KF_Duration = 5
+local KF_Pool = {}
+
+local DC_Enabled = false
+local DC_Device = '1'
+local DC_Hooked = false
+
+-- HELPERS
+local v2_new = Vector2.new
+local v3_new = Vector3.new
+local math_floor = math.floor
+local math_abs = math.abs
+local math_random = math.random
+local math_pi = math.pi
+
+local function World_To_Screen(position)
+    local point, on_screen = Camera:WorldToViewportPoint(position)
+    return v2_new(point.X, point.Y), on_screen, point.Z
+end
+
+local function IsAlive(player)
+    if not player then return false end
+    resolve_player(player)
+    local char = player.Character
+    if not char then return false end
+    if HitHandler and HitHandler.isAlive then
+        local ok, result = pcall(function() return HitHandler:isAlive(char) end)
+        if ok then return result end
+    end
+    if States and States.GetStateValue then
+        local ok, health = pcall(function() return States:GetStateValue(char, "Health", 150) end)
+        if ok and health then return health > 0 end
+    end
+    local humanoid = char:FindFirstChildOfClass('Humanoid')
+    if not humanoid then return false end
+    return humanoid.Health > 0
+end
+
+local function IsSameTeam(player)
+    if not Aimbot_Team_Check then return false end
+    if player == LocalPlayer then return true end
+    if GameplayHandler then
+        local localTeam, playerTeam = nil, nil
+        pcall(function()
+            local _, duelID = GameplayHandler:GetLocalDuel()
+            if duelID then
+                localTeam = GameplayHandler:GetPlayerTeam(duelID, LocalPlayer)
+                playerTeam = GameplayHandler:GetPlayerTeam(duelID, player)
+            end
+        end)
+        if localTeam and playerTeam then return localTeam.id == playerTeam.id end
+    end
+    if LocalPlayer.Team and player.Team then return player.Team == LocalPlayer.Team end
+    return false
+end
+
+local function GetPlayerMatchState(player)
+    if not GameplayHandler or not GameplayHandler.PlayerGameData then return "unknown" end
+    local data = GameplayHandler.PlayerGameData[player]
+    if not data then return "unknown" end
+    if data.state == "lobby" then return "LOBBY" end
+    if data.spectating then return "SPECTATING" end
+    if data.state == "duel" then return "IN MATCH" end
+    return "unknown"
+end
+
+local function IsPlayerSpectating(player)
+    if not GameplayHandler then return false end
+    local _, duelID = GameplayHandler:GetLocalDuel()
+    if not duelID then return false end
+    local duel = GameplayHandler.DuelData[duelID]
+    if not duel or not duel.spectators then return false end
+    return table.find(duel.spectators, player) ~= nil
+end
+
+local function GetTeamColor(player)
+    if not GameplayHandler then return nil end
+    local _, duelID = GameplayHandler:GetLocalDuel()
+    if not duelID then return nil end
+    local team = GameplayHandler:GetPlayerTeam(duelID, player)
+    if not team then return nil end
+    if team.color == "Blue" then return Color3.fromRGB(0, 154, 255) end
+    if team.color == "Orange" then return Color3.fromRGB(255, 115, 39) end
+    return nil
+end
+
+local function GetDummyCount()
+    local count = 0
+    local world = Workspace:FindFirstChild('World')
+    if world then
+        local entities = world:FindFirstChild('Entities')
+        if entities then
+            for _, v in ipairs(entities:GetChildren()) do
+                if v:GetAttribute('IsDummy') == true then count = count + 1 end
+            end
+        end
+    end
+    return count
+end
+
+local function Is_Behind_Wall(part)
+    local origin = Camera.CFrame.Position
+    local direction = (part.Position - origin)
+    local ray = Ray.new(origin, direction)
+    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, { LocalPlayer.Character }, false, true)
+    return hit and hit:IsDescendantOf(part.Parent) == false
+end
+
+local function Get_Nearest_Part(player, part_name)
+    local char = player.Character
+    if not char then return nil end
+    if part_name == 'Head' then return char:FindFirstChild('Head')
+    elseif part_name == 'HumanoidRootPart' then return char:FindFirstChild('HumanoidRootPart')
+    elseif part_name == 'Torso' then return char:FindFirstChild('Torso') or char:FindFirstChild('UpperTorso')
+    elseif part_name == 'Random' then
+        local parts = {}
+        for _, v in ipairs(char:GetChildren()) do if v:IsA('BasePart') then table.insert(parts, v) end end
+        if #parts == 0 then return char:FindFirstChild('HumanoidRootPart') end
+        return parts[math_random(1, #parts)]
+    end
+    return char:FindFirstChild(part_name)
+end
+
+local function Get_Distance(player)
+    local char = player.Character
+    local local_char = LocalPlayer.Character
+    if not char or not local_char then return 0 end
+    local root = char:FindFirstChild('HumanoidRootPart')
+    local local_root = local_char:FindFirstChild('HumanoidRootPart')
+    if not root or not local_root then return 0 end
+    return (root.Position - local_root.Position).Magnitude
+end
+
+local function Get_Health(player)
+    local char = player.Character
+    if not char then return 0 end
+    if States and States.GetStateValue then
+        local ok, health = pcall(function() return States:GetStateValue(char, "Health", 150) end)
+        if ok and health then
+            local maxHealth = 150
+            local ok2, mh = pcall(function() return States:GetStateValue(char, "MaxHealth", 150) end)
+            if ok2 and mh then maxHealth = mh end
+            return math.clamp(health / maxHealth, 0, 1)
+        end
+    end
+    local humanoid = char:FindFirstChildOfClass('Humanoid')
+    if not humanoid then return 0 end
+    return humanoid.Health / humanoid.MaxHealth
+end
+
+-- FOV CIRCLE
+local FOV_Drawing = Drawing.new('Circle')
+FOV_Drawing.Visible = false
+FOV_Drawing.Filled = false
+FOV_Drawing.Color = FOV_Color
+FOV_Drawing.Thickness = 1.5
+FOV_Drawing.NumSides = 100
+FOV_Drawing.Transparency = 0.7
+FOV_Drawing.ZIndex = 2
+
+-- ESP POOL
+local ESP_Pool = {}
+local function Create_ESP_Drawings(player)
+    local d = {}
+    d.Box_Outline = Drawing.new('Square')
+    d.Box_Outline.Visible = false; d.Box_Outline.Filled = false; d.Box_Outline.Color = Box_Color; d.Box_Outline.Thickness = 1.5; d.Box_Outline.ZIndex = 3
+    d.Box_Fill = Drawing.new('Square')
+    d.Box_Fill.Visible = false; d.Box_Fill.Filled = true; d.Box_Fill.Color = Color3.fromRGB(0, 0, 0); d.Box_Fill.Transparency = 0.7; d.Box_Fill.ZIndex = 2
+    d.Health_Bar_BG = Drawing.new('Line')
+    d.Health_Bar_BG.Visible = false; d.Health_Bar_BG.Color = Color3.fromRGB(40, 40, 40); d.Health_Bar_BG.Thickness = 2; d.Health_Bar_BG.ZIndex = 3
+    d.Health_Bar = Drawing.new('Line')
+    d.Health_Bar.Visible = false; d.Health_Bar.Color = Color3.fromRGB(0, 255, 0); d.Health_Bar.Thickness = 2; d.Health_Bar.ZIndex = 4
+    d.Name_Text = Drawing.new('Text')
+    d.Name_Text.Visible = false; d.Name_Text.Color = Name_Color; d.Name_Text.Size = 13; d.Name_Text.Center = true; d.Name_Text.Outline = true; d.Name_Text.Font = Drawing.Fonts.Plex; d.Name_Text.ZIndex = 3
+    d.Distance_Text = Drawing.new('Text')
+    d.Distance_Text.Visible = false; d.Distance_Text.Color = Color3.fromRGB(200, 200, 200); d.Distance_Text.Size = 12; d.Distance_Text.Center = true; d.Distance_Text.Outline = true; d.Distance_Text.Font = Drawing.Fonts.Plex; d.Distance_Text.ZIndex = 3
+    d.Status_Text = Drawing.new('Text')
+    d.Status_Text.Visible = false; d.Status_Text.Size = 11; d.Status_Text.Center = true; d.Status_Text.Outline = true; d.Status_Text.Font = Drawing.Fonts.Plex; d.Status_Text.ZIndex = 3
+    d.Tracer_Line = Drawing.new('Line')
+    d.Tracer_Line.Visible = false; d.Tracer_Line.Color = Tracer_Color; d.Tracer_Line.Thickness = 1; d.Tracer_Line.Transparency = 0.5; d.Tracer_Line.ZIndex = 1
+    d.Head_Dot = Drawing.new('Circle')
+    d.Head_Dot.Visible = false; d.Head_Dot.Filled = true; d.Head_Dot.Color = Head_Dot_Color; d.Head_Dot.Radius = 4; d.Head_Dot.NumSides = 20; d.Head_Dot.ZIndex = 4
+    ESP_Pool[player] = d
+    return d
+end
+
+local function Remove_ESP_Drawings(player)
+    local d = ESP_Pool[player]
+    if not d then return end
+    for _, drawing in pairs(d) do pcall(function() drawing:Remove() end) end
+    ESP_Pool[player] = nil
+end
+
+local function Cleanup_ESP()
+    for player, d in pairs(ESP_Pool) do
+        if not player.Parent then
+            for _, drawing in pairs(d) do pcall(function() drawing:Remove() end) end
+            ESP_Pool[player] = nil
+        end
+    end
+end
+
+-- MATRIX AIMBOT LOGIC
+local function IsTargetValid(player)
+    if not player then return false end
+    if player == LocalPlayer then return false end
+    if IsSameTeam(player) then return false end
+    if not IsAlive(player) then return false end
+    resolve_player(player)
+    local char = player.Character
+    if not char then return false end
+    local target_part = Get_Nearest_Part(player, Aimbot_Part)
+    if not target_part then return false end
+    
+    if not Aimbot_NoSleep and Aimbot_Visible_Check then
+        if Is_Behind_Wall(target_part) then return false end
+    end
+    
+    local screen_pos, on_screen = World_To_Screen(target_part.Position)
+    if not on_screen then return false end
+    local screen_center = v2_new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local dist = (screen_pos - screen_center).Magnitude
+    if dist > Aim_FOV then return false end
+    return true
+end
+
+local function GetScreenDistance(player)
+    local target_part = Get_Nearest_Part(player, Aimbot_Part)
+    if not target_part then return math.huge end
+    local screen_pos, on_screen = World_To_Screen(target_part.Position)
+    if not on_screen then return math.huge end
+    local screen_center = v2_new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    return (screen_pos - screen_center).Magnitude
+end
+
+local function Get_Closest_Target()
+    local closest_player = nil
+    local closest_distance = Aim_FOV
+
+    if Aimbot_LockTarget and Aim_CurrentTarget and Aim_CurrentTarget.Parent then
+        if IsTargetValid(Aim_CurrentTarget) then
+            local current_dist = GetScreenDistance(Aim_CurrentTarget)
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= Aim_CurrentTarget and IsTargetValid(player) then
+                    local new_dist = GetScreenDistance(player)
+                    if new_dist < current_dist * 0.6 then
+                        closest_player = player
+                        closest_distance = new_dist
+                    end
+                end
+            end
+            if closest_player then return closest_player end
+            return Aim_CurrentTarget
+        end
+    end
+
+    Aim_CurrentTarget = nil
+    for _, player in ipairs(Players:GetPlayers()) do
+        if IsTargetValid(player) then
+            local dist = GetScreenDistance(player)
+            if dist < closest_distance then
+                closest_distance = dist
+                closest_player = player
+            end
+        end
+    end
+    return closest_player
+end
+
+local function isKeybindActive()
+    if not Aimbot_Enabled then return false end
+    local kb = Options.Aimbot_Key
+    if not kb or kb.Value == Enum.KeyCode.Unknown then return true end
+    if Aimbot_ToggleMode then
+        return Toggles.Aimbot_Key.Value
+    else
+        return kb:GetState()
+    end
+end
+
+local function Update_Aimbot()
+    if not isKeybindActive() then
+        Aim_CurrentTarget = nil
+        return
+    end
+
+    Aim_CurrentTarget = Get_Closest_Target()
+
+    if Aim_CurrentTarget then
+        local char = Aim_CurrentTarget.Character
+        if not char then return end
+        local target_part = Get_Nearest_Part(Aim_CurrentTarget, Aimbot_Part)
+        if not target_part then return end
+
+        local targetPos = target_part.Position
+        if Aimbot_Predict then
+            local vel = target_part.AssemblyLinearVelocity
+            targetPos = targetPos + Vector3.new(vel.X * Aimbot_PredictX, vel.Y * Aimbot_PredictY, vel.Z * Aimbot_PredictX)
+        end
+
+        if Aimbot_Resolve then
+            -- Slight offset up to compensate for hitbox desync
+            targetPos = targetPos + Vector3.new(0, 0.1, 0)
+        end
+
+        local screenPos, onScreen = World_To_Screen(targetPos)
+        if onScreen then
+            local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+            local deltaX = screenPos.X - center.X
+            local deltaY = screenPos.Y - center.Y
+            
+            local alpha = Aimbot_Smoothness
+            if Aimbot_Easing then
+                alpha = 1 - math.pow(1 - Aimbot_Smoothness, 3)
+            end
+            
+            local moveX = deltaX * alpha
+            local moveY = deltaY * alpha
+            
+            if Aimbot_Shake then
+                moveX = moveX + (math_random() - 0.5) * 2
+                moveY = moveY + (math_random() - 0.5) * 2
+            end
+            
+            if mousemoverel then mousemoverel(moveX, moveY) end
+        end
+    end
+end
+
+-- ESP UPDATE
+local function Update_ESP()
+    Cleanup_ESP()
+    local screen_size = Camera.ViewportSize
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        if IsSameTeam(player) then continue end
+        resolve_player(player)
+        local char = player.Character
+        if not char then
+            local d = ESP_Pool[player]
+            if d then for _, drawing in pairs(d) do drawing.Visible = false end end
+            continue
+        end
+
+        local hrp = char:FindFirstChild('HumanoidRootPart')
+        local head = char:FindFirstChild('Head')
+        if not hrp or not head then
+            local d = ESP_Pool[player]
+            if d then for _, drawing in pairs(d) do drawing.Visible = false end end
+            continue
+        end
+
+        local root_pos, root_visible = World_To_Screen(hrp.Position)
+        local head_pos, head_visible = World_To_Screen(head.Position + v3_new(0, 0.3, 0))
+
+        local d = ESP_Pool[player]
+        if not d then d = Create_ESP_Drawings(player) end
+
+        if not root_visible and not head_visible then
+            for _, drawing in pairs(d) do drawing.Visible = false end
+            continue
+        end
+
+        local health = Get_Health(player)
+        local distance = Get_Distance(player)
+        local dist_str = tostring(math_floor(distance)) .. 'm'
+
+        local effective_box_color = Box_Color
+        local effective_name_color = Name_Color
+        local effective_tracer_color = Tracer_Color
+        local effective_dot_color = Head_Dot_Color
+
+        if ESP_TeamColors then
+            local tColor = GetTeamColor(player)
+            if tColor then
+                effective_box_color = tColor
+                effective_name_color = tColor
+                effective_tracer_color = tColor
+                effective_dot_color = tColor
+            end
+        end
+
+        local head_size = 2
+        local head_y = head_pos.Y - head_size
+        local root_y = root_pos.Y + 2
+        local height = math_abs(root_y - head_y)
+        local width = height * 0.55
+        local box_x = root_pos.X - width / 2
+        local box_y = head_pos.Y - head_size
+
+        if Box_Enabled and ESP_Enabled then
+            d.Box_Outline.Position = v2_new(box_x, box_y)
+            d.Box_Outline.Size = v2_new(width, height)
+            d.Box_Outline.Visible = true
+            d.Box_Outline.Color = effective_box_color
+            d.Box_Fill.Position = v2_new(box_x, box_y)
+            d.Box_Fill.Size = v2_new(width, height)
+            d.Box_Fill.Visible = true
+        else
+            d.Box_Outline.Visible = false
+            d.Box_Fill.Visible = false
+        end
+
+        if Health_Enabled and ESP_Enabled then
+            local bar_x = box_x - 6
+            d.Health_Bar_BG.From = v2_new(bar_x, box_y)
+            d.Health_Bar_BG.To = v2_new(bar_x, box_y + height)
+            d.Health_Bar_BG.Visible = true
+            local filled = height * health
+            d.Health_Bar.From = v2_new(bar_x, box_y + height - filled)
+            d.Health_Bar.To = v2_new(bar_x, box_y + height)
+            d.Health_Bar.Visible = true
+            local r = (1 - health) * 255
+            local g = health * 255
+            d.Health_Bar.Color = Color3.fromRGB(r, g, 40)
+        else
+            d.Health_Bar_BG.Visible = false
+            d.Health_Bar.Visible = false
+        end
+
+        if Name_Enabled and ESP_Enabled then
+            d.Name_Text.Text = player.DisplayName
+            d.Name_Text.Position = v2_new(root_pos.X, box_y - 14)
+            d.Name_Text.Visible = true
+            d.Name_Text.Color = effective_name_color
+        else
+            d.Name_Text.Visible = false
+        end
+
+        if Distance_Enabled and ESP_Enabled then
+            d.Distance_Text.Text = dist_str
+            d.Distance_Text.Position = v2_new(root_pos.X, box_y + height + 4)
+            d.Distance_Text.Visible = true
+        else
+            d.Distance_Text.Visible = false
+        end
+
+        if ESP_MatchAware or ESP_SpectateDetect then
+            local status_parts = {}
+            if ESP_MatchAware then
+                local matchState = GetPlayerMatchState(player)
+                if matchState ~= "unknown" then table.insert(status_parts, matchState) end
+            end
+            if ESP_SpectateDetect and IsPlayerSpectating(player) then table.insert(status_parts, "SPECTATING") end
+            if #status_parts > 0 then
+                d.Status_Text.Text = table.concat(status_parts, " | ")
+                d.Status_Text.Position = v2_new(root_pos.X, box_y + height + 18)
+                d.Status_Text.Color = IsPlayerSpectating(player) and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(150, 150, 255)
+                d.Status_Text.Visible = true
+            else
+                d.Status_Text.Visible = false
+            end
+        else
+            d.Status_Text.Visible = false
+        end
+
+        if Tracer_Enabled and ESP_Enabled then
+            local origin_x = screen_size.X / 2
+            local origin_y = Tracer_Origin == 'Bottom' and screen_size.Y or Tracer_Origin == 'Top' and 0 or screen_size.Y / 2
+            d.Tracer_Line.From = v2_new(origin_x, origin_y)
+            d.Tracer_Line.To = v2_new(root_pos.X, root_pos.Y)
+            d.Tracer_Line.Visible = true
+            d.Tracer_Line.Color = effective_tracer_color
+        else
+            d.Tracer_Line.Visible = false
+        end
+
+        if Head_Dot_Enabled and ESP_Enabled then
+            d.Head_Dot.Position = head_pos
+            d.Head_Dot.Visible = true
+            d.Head_Dot.Color = effective_dot_color
+        else
+            d.Head_Dot.Visible = false
+        end
+    end
+end
+
+-- FOV UPDATE
+local function Update_FOV()
+    if not FOV_Enabled then
+        FOV_Drawing.Visible = false
+        return
+    end
+    local center = v2_new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOV_Drawing.Position = center
+    FOV_Drawing.Radius = Aim_FOV
+    FOV_Drawing.Color = FOV_Color
+    FOV_Drawing.Visible = true
+end
+
+-- BOT ESP
+local function Create_Bot_Drawings()
+    local d = {}
+    d.Box = Drawing.new('Square')
+    d.Box.Visible = false; d.Box.Filled = false; d.Box.Thickness = 2; d.Box.ZIndex = 5
+    d.Label = Drawing.new('Text')
+    d.Label.Visible = false; d.Label.Size = 13; d.Label.Center = true; d.Label.Outline = true; d.Label.Font = Drawing.Fonts.Plex; d.Label.ZIndex = 5
+    d.Dot = Drawing.new('Circle')
+    d.Dot.Visible = false; d.Dot.Filled = true; d.Dot.Radius = 3; d.Dot.NumSides = 12; d.Dot.ZIndex = 6
+    return d
+end
+
+local function Update_BotESP()
+    if not BotESP_Enabled then
+        for ent, d in pairs(BotESP_Pool) do
+            for _, drawing in pairs(d) do pcall(function() drawing.Visible = false end) end
+        end
+        return
+    end
+
+    local world = Workspace:FindFirstChild('World')
+    if not world then return end
+    local entities = world:FindFirstChild('Entities')
+    if not entities then return end
+
+    for ent, d in pairs(BotESP_Pool) do
+        if not ent.Parent then
+            for _, drawing in pairs(d) do pcall(function() drawing:Remove() end) end
+            BotESP_Pool[ent] = nil
+        end
+    end
+
+    for _, ent in ipairs(entities:GetChildren()) do
+        if ent:GetAttribute('IsDummy') ~= true then continue end
+        local hrp = ent:FindFirstChild('HumanoidRootPart')
+        if not hrp then continue end
+        local root_pos, root_visible = World_To_Screen(hrp.Position)
+        local head = ent:FindFirstChild('Head')
+        local head_pos, head_visible
+        if head then head_pos, head_visible = World_To_Screen(head.Position + v3_new(0, 0.5, 0)) end
+
+        if not root_visible and not head_visible then
+            if BotESP_Pool[ent] then
+                for _, drawing in pairs(BotESP_Pool[ent]) do drawing.Visible = false end
+            end
+            continue
+        end
+
+        local isFinisher = ent:GetAttribute('Finisher') == true
+        local color = isFinisher and BotESP_FinisherColor or BotESP_Color
+
+        if not BotESP_Pool[ent] then BotESP_Pool[ent] = Create_Bot_Drawings() end
+        local d = BotESP_Pool[ent]
+
+        local head_y = head_pos and head_pos.Y or (root_pos.Y - 3)
+        local root_y = root_pos.Y + 2
+        local height = math_abs(root_y - head_y)
+        local width = height * 0.55
+        local box_x = root_pos.X - width / 2
+        local box_y = head_y - 2
+
+        d.Box.Position = v2_new(box_x, box_y)
+        d.Box.Size = v2_new(width, height)
+        d.Box.Color = color
+        d.Box.Visible = true
+
+        local label_text = isFinisher and 'BOT [FINISHER]' or 'BOT'
+        if BotESP_ShowID then
+            local botID = ent:GetAttribute('BotUserId')
+            label_text = label_text .. ' #' .. tostring(botID or '?')
+        end
+        d.Label.Text = label_text
+        d.Label.Position = v2_new(root_pos.X, box_y - 14)
+        d.Label.Color = color
+        d.Label.Visible = true
+
+        if head_pos and head_visible then
+            d.Dot.Position = head_pos
+            d.Dot.Color = color
+            d.Dot.Visible = true
+        else
+            d.Dot.Visible = false
+        end
+    end
+end
+
+-- RAINBOW
+local function Update_Rainbow()
+    if not Rainbow_Enabled then return end
+    Rainbow_Hue = (Rainbow_Hue + Rainbow_Speed) % 1
+    local color = Color3.fromHSV(Rainbow_Hue, 1, 1)
+    for _, target in ipairs(Rainbow_Targets) do
+        if target == 'Box' then Box_Color = color end
+        if target == 'Name' then Name_Color = color end
+        if target == 'Tracer' then Tracer_Color = color end
+        if target == 'HeadDot' then Head_Dot_Color = color end
+        if target == 'FOV' then FOV_Color = color end
+    end
+end
+
+-- KILL FEED
+local function SetupKillFeedListener()
+    task.delay(4, function()
+        pcall(function()
+            if Neuron and Neuron.net and Neuron.net.packets then
+                local packet = Neuron.net.packets.round_died
+                if packet and packet.Connect then
+                    packet:Connect(function(data)
+                        if not KF_Enabled then return end
+                        if not data then return end
+                        local killed = data.player
+                        local killer = data.killer
+                        local assist = data.assistingPlayer
+                        local headshot = data.headShot
+                        local weaponID = data.weaponID
+                        if not killed then return end
+
+                        local killerName = killer and killer.DisplayName or "World"
+                        local killedName = killed.DisplayName
+                        local assistName = assist and assist.DisplayName or nil
+
+                        local weaponName = weaponID or "weapon"
+                        local weaponAliases = {
+                            ["burst"] = "Burst Carbine", ["handgun"] = "Pistol", ["tec9"] = "Tec-9", ["flintlock"] = "Flintlock",
+                            ["bolt_action_sniper"] = "Sniper", ["taser"] = "Tazer", ["satchel"] = "Satchel", ["fist"] = "Knife",
+                            ["ak47"] = "AK-47", ["ar"] = "Assault Rifle", ["deagle"] = "Desert Eagle", ["minigun"] = "Minigun",
+                            ["pistol"] = "Pistol", ["pulse_rifle"] = "Pulse Rifle", ["raygun"] = "Ray Gun", ["rpg"] = "RPG",
+                            ["shotgun"] = "Shotgun", ["sniper"] = "Sniper", ["scar_h"] = "SCAR-H", ["lmg"] = "LMG",
+                            ["tommy_gun"] = "Tommy Gun", ["knife"] = "Knife", ["karambit"] = "Karambit", ["katana"] = "Katana",
+                            ["butterfly_knife"] = "Butterfly Knife", ["scythe"] = "Scythe", ["shorty"] = "Shorty",
+                            ["grenade"] = "Grenade", ["molotov"] = "Molotov", ["precision_burst_carbine"] = "Burst Carbine",
+                            ["tazer"] = "Tazer", ["satchel_explosive"] = "Satchel", ["flintlock_pistol"] = "Flintlock", ["tec-9"] = "Tec-9",
+                        }
+                        if weaponAliases[weaponName] then weaponName = weaponAliases[weaponName] end
+
+                        local text = killerName .. " > " .. killedName .. " [" .. weaponName .. "]"
+                        if headshot then text = text .. " [HS]" end
+                        if assistName then text = text .. " (+ " .. assistName .. ")" end
+
+                        local entry = Drawing.new('Text')
+                        entry.Text = text; entry.Size = 14; entry.Center = false; entry.Outline = true; entry.Font = Drawing.Fonts.Plex
+                        entry.Color = headshot and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(255, 255, 255)
+                        entry.Visible = true
+
+                        table.insert(KF_Pool, { drawing = entry, expire = tick() + KF_Duration, duration = KF_Duration })
+                        while #KF_Pool > KF_MaxEntries do
+                            local old = table.remove(KF_Pool, 1)
+                            pcall(function() old.drawing:Remove() end)
+                        end
+                    end)
+                end
+            end
+        end)
+    end)
+end
+
+SetupKillFeedListener()
+
+local function Update_KillFeed()
+    local now = tick()
+    local screen_size = Camera.ViewportSize
+    local y_start = 150
+    for i = #KF_Pool, 1, -1 do
+        local entry = KF_Pool[i]
+        if now > entry.expire then
+            pcall(function() entry.drawing:Remove() end)
+            table.remove(KF_Pool, i)
+        else
+            local remaining = (entry.expire - now) / entry.duration
+            local fade = math.clamp(remaining * 2, 0, 1)
+            entry.drawing.Position = v2_new(screen_size.X - 350, y_start + (#KF_Pool - i) * 20)
+            entry.drawing.Transparency = 1 - fade
+        end
+    end
+end
+
+-- DEVICE CHANGER
+local function TryHookDataHandler()
+    if DC_Hooked then return end
+    if not DataHandler then return end
+    if not DataHandler.GetDataAsync then return end
+    pcall(function()
+        local original = DataHandler.GetDataAsync
+        DataHandler.GetDataAsync = function(self, player, ...)
+            local result = original(self, player, ...)
+            if player == LocalPlayer and DC_Enabled and result then
+                result.Device = DC_Device == "default" and nil or tonumber(DC_Device)
+            end
+            return result
+        end
+        DC_Hooked = true
+    end)
+end
+
+task.delay(4.5, function() TryHookDataHandler() end)
+
+local function Update_DeviceChanger()
+    if not DC_Enabled then return end
+    if not GameplayHandler then return end
+    pcall(function()
+        if GameplayHandler.playerFrame then
+            local deviceFrame = GameplayHandler.playerFrame:FindFirstChild("Device")
+            if deviceFrame then
+                local icon = deviceFrame:FindFirstChild("Icon")
+                if icon and icon:IsA("ImageLabel") then
+                    local deviceOffsets = {
+                        ["1"] = { Vector2.new(104, 154), Vector2.new(48, 72) },
+                        ["2"] = { Vector2.new(166, 154), Vector2.new(102, 72) },
+                        ["default"] = { Vector2.new(0, 154), Vector2.new(90, 72) }
+                    }
+                    local offset = deviceOffsets[DC_Device] or deviceOffsets["default"]
+                    icon.ImageRectOffset = offset[1]
+                    icon.ImageRectSize = offset[2]
+                end
+            end
+        end
+    end)
+end
+
+-- RENDER LOOPS
+RunService.RenderStepped:Connect(function()
+    Update_ESP()
+    Update_Aimbot()
+    Update_FOV()
+    Update_BotESP()
+    Update_Rainbow()
+    Update_KillFeed()
+    Update_DeviceChanger()
+end)
+
+Players.PlayerRemoving:Connect(function(player) Remove_ESP_Drawings(player) end)
+
+-- UI COMBAT TAB
+do
+    local CombatTab = Tabs.Combat
+    local AimBox = CombatTab:AddLeftGroupbox('Matrix Aimbot')
+    
+    AimBox:AddToggle('Aimbot_Enabled', { Text = 'Enable Aimbot', Default = false, Tooltip = 'Toggle Aimbot', Callback = function(v) Aimbot_Enabled = v end })
+    AimBox:AddKeyPicker('Aimbot_Key', { Text = 'Aimbot Key', Default = 'MB2', SyncToggleState = true, Mode = 'Toggle', NoUI = false, Tooltip = 'Keybind for Aimbot' })
+    AimBox:AddToggle('Aimbot_ToggleMode', { Text = 'Toggle Mode', Default = true, Tooltip = 'If off, keybind acts as hold', Callback = function(v) Aimbot_ToggleMode = v end })
+    AimBox:AddSlider('Aimbot_Smoothness', { Text = 'Smoothness', Default = 0.3, Min = 0.05, Max = 1, Rounding = 2, Callback = function(v) Aimbot_Smoothness = v end })
+    AimBox:AddDropdown('Aimbot_Part', { Text = 'Aim Part', Default = 'Head', Values = { 'Head', 'HumanoidRootPart', 'Torso', 'Random' }, Callback = function(v) Aimbot_Part = v end })
+    AimBox:AddToggle('Aimbot_Visible_Check', { Text = 'Visible Check', Default = true, Callback = function(v) Aimbot_Visible_Check = v end })
+    AimBox:AddToggle('Aimbot_Team_Check', { Text = 'Team Check', Default = false, Callback = function(v) Aimbot_Team_Check = v end })
+
+    local AdvBox = CombatTab:AddRightGroupbox('Advanced')
+    AdvBox:AddToggle('Aimbot_NoSleep', { Text = 'NoSleep (Ignore Walls)', Default = false, Callback = function(v) Aimbot_NoSleep = v end })
+    AdvBox:AddToggle('Aimbot_LockTarget', { Text = 'LockTarget (Sticky)', Default = true, Callback = function(v) Aimbot_LockTarget = v end })
+    AdvBox:AddToggle('Aimbot_Predict', { Text = 'Predict', Default = false, Callback = function(v) Aimbot_Predict = v end })
+    AdvBox:AddSlider('Aimbot_PredictX', { Text = 'Predict X', Default = 0.1, Min = 0, Max = 1, Rounding = 3, Callback = function(v) Aimbot_PredictX = v end })
+    AdvBox:AddSlider('Aimbot_PredictY', { Text = 'Predict Y', Default = 0.1, Min = 0, Max = 1, Rounding = 3, Callback = function(v) Aimbot_PredictY = v end })
+    AdvBox:AddToggle('Aimbot_Resolve', { Text = 'Resolve Aimbot', Default = false, Callback = function(v) Aimbot_Resolve = v end })
+    AdvBox:AddToggle('Aimbot_Easing', { Text = 'Easing', Default = true, Callback = function(v) Aimbot_Easing = v end })
+    AdvBox:AddToggle('Aimbot_Shake', { Text = 'Shake', Default = false, Callback = function(v) Aimbot_Shake = v end })
+
+    local FOVBox = CombatTab:AddLeftGroupbox('FOV')
+    FOVBox:AddToggle('FOV_Enabled', { Text = 'Show FOV', Default = true, Callback = function(v) FOV_Enabled = v end })
+    FOVBox:AddSlider('FOV_Size', { Text = 'FOV Size', Default = 150, Min = 10, Max = 500, Rounding = 0, Suffix = 'px', Callback = function(v) Aim_FOV = v end })
+    FOVBox:AddLabel('Color'):AddColorPicker('FOV_Color', { Default = Color3.fromRGB(255, 255, 255), Callback = function(v) FOV_Color = v end })
+end
+
+-- UI VISUAL TAB
+do
+    local VisualTab = Tabs.Visual
+    local ESPBox = VisualTab:AddLeftGroupbox('ESP')
+    ESPBox:AddToggle('ESP_Enabled', { Text = 'ESP', Default = true, Callback = function(v) ESP_Enabled = v end })
+    ESPBox:AddToggle('Box', { Text = 'Box', Default = true, Callback = function(v) Box_Enabled = v end })
+    ESPBox:AddLabel('Box Color'):AddColorPicker('Box_Color', { Default = Color3.fromRGB(255, 255, 255), Callback = function(v) Box_Color = v end })
+    ESPBox:AddToggle('Name', { Text = 'Name', Default = true, Callback = function(v) Name_Enabled = v end })
+    ESPBox:AddLabel('Name Color'):AddColorPicker('Name_Color', { Default = Color3.fromRGB(255, 255, 255), Callback = function(v) Name_Color = v end })
+    ESPBox:AddToggle('Health', { Text = 'Health Bar', Default = true, Callback = function(v) Health_Enabled = v end })
+    ESPBox:AddToggle('Distance', { Text = 'Distance', Default = true, Callback = function(v) Distance_Enabled = v end })
+
+    local TracerBox = VisualTab:AddRightGroupbox('Tracers & Dots')
+    TracerBox:AddToggle('Tracer', { Text = 'Tracers', Default = true, Callback = function(v) Tracer_Enabled = v end })
+    TracerBox:AddLabel('Tracer Color'):AddColorPicker('Tracer_Color', { Default = Color3.fromRGB(255, 255, 255), Callback = function(v) Tracer_Color = v end })
+    TracerBox:AddDropdown('Tracer_Origin', { Text = 'Tracer Origin', Default = 'Bottom', Values = { 'Bottom', 'Middle', 'Top' }, Callback = function(v) Tracer_Origin = v end })
+    TracerBox:AddDivider()
+    TracerBox:AddToggle('Head_Dot', { Text = 'Head Dot', Default = true, Callback = function(v) Head_Dot_Enabled = v end })
+    TracerBox:AddLabel('Dot Color'):AddColorPicker('Head_Dot_Color', { Default = Color3.fromRGB(255, 0, 0), Callback = function(v) Head_Dot_Color = v end })
+
+    local GameAwareBox = VisualTab:AddLeftGroupbox('Game-Aware ESP')
+    GameAwareBox:AddToggle('ESP_TeamColors', { Text = 'Team Colors', Default = false, Callback = function(v) ESP_TeamColors = v end })
+    GameAwareBox:AddToggle('ESP_MatchAware', { Text = 'Match State Labels', Default = false, Callback = function(v) ESP_MatchAware = v end })
+    GameAwareBox:AddToggle('ESP_SpectateDetect', { Text = 'Spectate Detection', Default = false, Callback = function(v) ESP_SpectateDetect = v end })
+
+    local RainbowGroup = VisualTab:AddLeftGroupbox('Rainbow')
+    RainbowGroup:AddToggle('Rainbow_Enable', { Text = 'Rainbow Mode', Default = false, Callback = function(v) Rainbow_Enabled = v end })
+    RainbowGroup:AddSlider('Rainbow_Speed', { Text = 'Rainbow Speed', Default = 3, Min = 1, Max = 20, Rounding = 0, Callback = function(v) Rainbow_Speed = v / 1000 end })
+    RainbowGroup:AddDropdown('Rainbow_Targets', { Text = 'Apply To', Default = 'Box', Values = { 'Box', 'Name', 'Tracer', 'HeadDot', 'FOV' }, Callback = function(v)
+        local found = false
+        for i, t in ipairs(Rainbow_Targets) do
+            if t == v then table.remove(Rainbow_Targets, i) found = true break end
+        end
+        if not found then table.insert(Rainbow_Targets, v) end
+    end })
+
+    local BotGroup = VisualTab:AddRightGroupbox('Bot Detection')
+    BotGroup:AddToggle('BotESP_Enable', { Text = 'Bot ESP', Default = false, Callback = function(v) BotESP_Enabled = v end })
+    BotGroup:AddLabel('Bot Color'):AddColorPicker('BotESP_Color', { Default = Color3.fromRGB(0, 255, 140), Callback = function(v) BotESP_Color = v end })
+    BotGroup:AddLabel('Finisher Color'):AddColorPicker('BotESP_Finisher', { Default = Color3.fromRGB(255, 50, 150), Callback = function(v) BotESP_FinisherColor = v end })
+    BotGroup:AddToggle('BotESP_ShowID', { Text = 'Show Bot User ID', Default = false, Callback = function(v) BotESP_ShowID = v end })
+    BotGroup:AddDivider()
+    BotGroup:AddButton('Count Active Dummies', function()
+        local count = GetDummyCount()
+        BotGroup:AddLabel('Count: ' .. tostring(count))
+    end)
+end
+
+-- UI MISC TAB
+do
+    local MiscTab = Tabs.Misc
+    local KFGroup = MiscTab:AddLeftGroupbox('Custom Kill Feed')
+    KFGroup:AddToggle('KF_Enable', { Text = 'Custom Kill Feed', Default = false, Callback = function(v) KF_Enabled = v end })
+    KFGroup:AddSlider('KF_MaxEntries', { Text = 'Max Entries', Default = 5, Min = 1, Max = 10, Rounding = 0, Callback = function(v) KF_MaxEntries = v end })
+    KFGroup:AddSlider('KF_Duration', { Text = 'Duration', Default = 5, Min = 1, Max = 15, Rounding = 0, Suffix = 's', Callback = function(v) KF_Duration = v end })
+
+    local DCGroup = MiscTab:AddRightGroupbox('Device Changer')
+    DCGroup:AddToggle('DC_Enable', { Text = 'Spoof Device', Default = false, Callback = function(v) DC_Enabled = v end })
+    DCGroup:AddDropdown('DC_Device', { Text = 'Device', Default = '1', Values = { '1', '2', 'default' }, Callback = function(v) DC_Device = v end })
+end
+
+-- UI SETTINGS TAB
+local MenuGroup = Tabs['UI Settings']:AddLeftGroupbox('Menu')
+MenuGroup:AddButton('Unload', function()
+    for player, d in pairs(ESP_Pool) do for _, drawing in pairs(d) do pcall(function() drawing:Remove() end) end end
+    for ent, d in pairs(BotESP_Pool) do for _, drawing in pairs(d) do pcall(function() drawing:Remove() end) end end
+    for _, entry in ipairs(KF_Pool) do pcall(function() entry.drawing:Remove() end) end
+    pcall(function() FOV_Drawing:Remove() end)
+    Library:Unload()
+end)
+MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', { Default = 'End', NoUI = true, Text = 'Menu keybind' })
+Library.ToggleKeybind = Options.MenuKeybind
+
+local AdvancedGroup = Tabs['UI Settings']:AddLeftGroupbox('Advanced')
+AdvancedGroup:AddToggle('ShowAdvanced', {Text='Show advanced options', Default=false})
+
+local AdvancedBox = AdvancedGroup:AddDependencyBox()
+AdvancedBox:AddSlider('UIScaleSlider', { Text = 'UI scale', Default = 100, Min = 50, Max = 150, Rounding = 0, Suffix = '%', Callback = function(v) Window:SetScale(v / 100) end })
+AdvancedBox:AddSlider('UITransparencySlider', { Text = 'Menu transparency', Default = 0, Min = 0, Max = 90, Rounding = 0, Suffix = '%', Callback = function(v) Window:SetTransparency(v / 100) end })
+AdvancedBox:AddToggle('MobileButtonToggle', { Text = 'Show floating mobile button', Default = true, Callback = function(v) Library:SetMobileButtonVisibility(v) end })
+AdvancedBox:AddDivider()
+AdvancedBox:AddDropdown('WeatherEffectDropdown', { Text = 'Weather effect', Values = { 'None', 'Snow', 'Rain', 'Lightning' }, Default = 'None', Callback = function(v) Library:SetWeatherEffect(v) end })
+AdvancedBox:AddDropdown('WeatherScopeDropdown', { Text = 'Weather location', Values = { 'Inside UI', 'Whole screen' }, Default = 'Inside UI', Callback = function(v) Library:SetWeatherScope(v == 'Whole screen' and 'Screen' or 'UI') end })
+AdvancedBox:AddToggle('GlowToggle', { Text = 'Open/close glow effect', Default = true, Callback = function(v) Library:SetGlowEnabled(v) end })
+AdvancedBox:AddLabel('Glow color'):AddColorPicker('GlowColorPicker', { Default = Color3.fromRGB(0, 85, 255), Callback = function(v) Library:SetGlowColor(v) end })
+AdvancedBox:SetupDependencies({ { Toggles.ShowAdvanced, true } })
+
+-- ADDONS
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
+ThemeManager:SetFolder('OverloadHub')
+SaveManager:SetFolder('OverloadHub/specific-game')
+SaveManager:BuildConfigSection(Tabs['UI Settings'])
+ThemeManager:ApplyToTab(Tabs['UI Settings'])
+SaveManager:LoadAutoloadConfig()
