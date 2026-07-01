@@ -90,8 +90,6 @@ local Tabs = {
 -- CONFIG
 local Aimbot_Enabled = false
 local Aimbot_ToggleMode = false
-local Aimbot_Method = 'CamLock'
-local Aimbot_Smoothness = 0.3
 local Aimbot_Visible_Check = true
 local Aimbot_Team_Check = false
 local Aimbot_Part = 'Head'
@@ -99,16 +97,32 @@ local Aim_FOV = 150
 local FOV_Enabled = true
 local FOV_Color = Color3.fromRGB(255, 255, 255)
 
-local Aimbot_NoSleep = false
-local Aimbot_LockTarget = true
-local Aimbot_Predict = false
-local Aimbot_PredictX = 0.1
-local Aimbot_PredictY = 0.1
-local Aimbot_Resolve = false
-local Aimbot_Easing = true
-local Aimbot_Shake = false
+-- Legit Aimbot Speed System
+local Aim_Speed = 0.3
+local Aim_SpeedInAttack = 0.15
+local Aim_SpeedScale = 100
+local Aim_MaxLockOnTime = 0
+local Aim_ReactionTime = 0
+local Aim_Distance = 250
+local Aim_DeathCheck = true
+local Aim_IsFiring = false
 
 local Aim_CurrentTarget = nil
+local Aim_LockOnStart = 0
+local Aim_ReactionStart = 0
+local Aim_IsReacting = false
+
+UserInput.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Aim_IsFiring = true
+    end
+end)
+UserInput.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Aim_IsFiring = false
+    end
+end)
 
 local ESP_Enabled = true
 local Box_Enabled = true
@@ -341,19 +355,21 @@ local function Cleanup_ESP()
     end
 end
 
--- MATRIX AIMBOT LOGIC
+-- LEGIT AIMBOT LOGIC
 local function IsTargetValid(player)
     if not player then return false end
     if player == LocalPlayer then return false end
     if IsSameTeam(player) then return false end
-    if not IsAlive(player) then return false end
+    if Aim_DeathCheck and not IsAlive(player) then return false end
     resolve_player(player)
     local char = player.Character
     if not char then return false end
     local target_part = Get_Nearest_Part(player, Aimbot_Part)
     if not target_part then return false end
     
-    if not Aimbot_NoSleep and Aimbot_Visible_Check then
+    if Get_Distance(player) > Aim_Distance then return false end
+    
+    if Aimbot_Visible_Check then
         if Is_Behind_Wall(target_part) then return false end
     end
     
@@ -378,9 +394,11 @@ local function Get_Closest_Target()
     local closest_player = nil
     local closest_distance = Aim_FOV
 
-    if Aimbot_LockTarget and Aim_CurrentTarget and Aim_CurrentTarget.Parent then
+    -- Sticky Target logic
+    if Aim_CurrentTarget and Aim_CurrentTarget.Parent then
         if IsTargetValid(Aim_CurrentTarget) then
             local current_dist = GetScreenDistance(Aim_CurrentTarget)
+            -- Only switch if another target is 40% closer to crosshair
             for _, player in ipairs(Players:GetPlayers()) do
                 if player ~= Aim_CurrentTarget and IsTargetValid(player) then
                     local new_dist = GetScreenDistance(player)
@@ -422,10 +440,45 @@ end
 local function Update_Aimbot()
     if not isKeybindActive() then
         Aim_CurrentTarget = nil
+        Aim_IsReacting = false
         return
     end
 
-    Aim_CurrentTarget = Get_Closest_Target()
+    local now = tick()
+
+    -- Max lock on time check
+    if Aim_MaxLockOnTime > 0 and Aim_CurrentTarget and (now - Aim_LockOnStart) >= Aim_MaxLockOnTime then
+        Aim_CurrentTarget = nil
+        Aim_IsReacting = false
+        return
+    end
+
+    local target = Get_Closest_Target()
+
+    -- Handle target switching with reaction time
+    if target ~= Aim_CurrentTarget then
+        if target then
+            if not Aim_IsReacting then
+                Aim_IsReacting = true
+                Aim_ReactionStart = now
+                return
+            end
+
+            local reaction_seconds = Aim_ReactionTime / 1000
+            if (now - Aim_ReactionStart) < reaction_seconds then
+                return -- Still reacting
+            end
+
+            -- Reaction time passed — switch target
+            Aim_CurrentTarget = target
+            Aim_LockOnStart = now
+            Aim_IsReacting = false
+        else
+            Aim_CurrentTarget = nil
+            Aim_IsReacting = false
+            return
+        end
+    end
 
     if Aim_CurrentTarget then
         local char = Aim_CurrentTarget.Character
@@ -434,34 +487,19 @@ local function Update_Aimbot()
         if not target_part then return end
 
         local targetPos = target_part.Position
-        if Aimbot_Predict then
-            local vel = target_part.AssemblyLinearVelocity
-            targetPos = targetPos + Vector3.new(vel.X * Aimbot_PredictX, vel.Y * Aimbot_PredictY, vel.Z * Aimbot_PredictX)
-        end
-
-        if Aimbot_Resolve then
-            -- Slight offset up to compensate for hitbox desync
-            targetPos = targetPos + Vector3.new(0, 0.1, 0)
-        end
-
         local screenPos, onScreen = World_To_Screen(targetPos)
         if onScreen then
             local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
             local deltaX = screenPos.X - center.X
             local deltaY = screenPos.Y - center.Y
             
-            local alpha = Aimbot_Smoothness
-            if Aimbot_Easing then
-                alpha = 1 - math.pow(1 - Aimbot_Smoothness, 3)
-            end
+            -- Legit Aimbot Speed Calculation
+            local base_speed = Aim_IsFiring and Aim_SpeedInAttack or Aim_Speed
+            local effective_speed = base_speed * (Aim_SpeedScale / 100)
+            local alpha = math.clamp(effective_speed, 0.001, 1)
             
             local moveX = deltaX * alpha
             local moveY = deltaY * alpha
-            
-            if Aimbot_Shake then
-                moveX = moveX + (math_random() - 0.5) * 2
-                moveY = moveY + (math_random() - 0.5) * 2
-            end
             
             if mousemoverel then mousemoverel(moveX, moveY) end
         end
@@ -864,25 +902,23 @@ Players.PlayerRemoving:Connect(function(player) Remove_ESP_Drawings(player) end)
 -- UI COMBAT TAB
 do
     local CombatTab = Tabs.Combat
-    local AimBox = CombatTab:AddLeftGroupbox('Matrix Aimbot')
+    local AimBox = CombatTab:AddLeftGroupbox('Legit Aimbot')
     
     AimBox:AddToggle('Aimbot_Enabled', { Text = 'Enable Aimbot', Default = false, Tooltip = 'Toggle Aimbot', Callback = function(v) Aimbot_Enabled = v end })
     AimBox:AddKeyPicker('Aimbot_Key', { Text = 'Aimbot Key', Default = 'MB2', SyncToggleState = true, Mode = 'Toggle', NoUI = false, Tooltip = 'Keybind for Aimbot' })
     AimBox:AddToggle('Aimbot_ToggleMode', { Text = 'Toggle Mode', Default = true, Tooltip = 'If off, keybind acts as hold', Callback = function(v) Aimbot_ToggleMode = v end })
-    AimBox:AddSlider('Aimbot_Smoothness', { Text = 'Smoothness', Default = 0.3, Min = 0.05, Max = 1, Rounding = 2, Callback = function(v) Aimbot_Smoothness = v end })
     AimBox:AddDropdown('Aimbot_Part', { Text = 'Aim Part', Default = 'Head', Values = { 'Head', 'HumanoidRootPart', 'Torso', 'Random' }, Callback = function(v) Aimbot_Part = v end })
     AimBox:AddToggle('Aimbot_Visible_Check', { Text = 'Visible Check', Default = true, Callback = function(v) Aimbot_Visible_Check = v end })
     AimBox:AddToggle('Aimbot_Team_Check', { Text = 'Team Check', Default = false, Callback = function(v) Aimbot_Team_Check = v end })
+    AimBox:AddToggle('Aimbot_DeathCheck', { Text = 'Death Check', Default = true, Callback = function(v) Aim_DeathCheck = v end })
+    AimBox:AddSlider('Aim_Distance', { Text = 'Max Distance', Default = 250, Min = 0, Max = 1000, Rounding = 0, Suffix = ' studs', Callback = function(v) Aim_Distance = v end })
 
-    local AdvBox = CombatTab:AddRightGroupbox('Advanced')
-    AdvBox:AddToggle('Aimbot_NoSleep', { Text = 'NoSleep (Ignore Walls)', Default = false, Callback = function(v) Aimbot_NoSleep = v end })
-    AdvBox:AddToggle('Aimbot_LockTarget', { Text = 'LockTarget (Sticky)', Default = true, Callback = function(v) Aimbot_LockTarget = v end })
-    AdvBox:AddToggle('Aimbot_Predict', { Text = 'Predict', Default = false, Callback = function(v) Aimbot_Predict = v end })
-    AdvBox:AddSlider('Aimbot_PredictX', { Text = 'Predict X', Default = 0.1, Min = 0, Max = 1, Rounding = 3, Callback = function(v) Aimbot_PredictX = v end })
-    AdvBox:AddSlider('Aimbot_PredictY', { Text = 'Predict Y', Default = 0.1, Min = 0, Max = 1, Rounding = 3, Callback = function(v) Aimbot_PredictY = v end })
-    AdvBox:AddToggle('Aimbot_Resolve', { Text = 'Resolve Aimbot', Default = false, Callback = function(v) Aimbot_Resolve = v end })
-    AdvBox:AddToggle('Aimbot_Easing', { Text = 'Easing', Default = true, Callback = function(v) Aimbot_Easing = v end })
-    AdvBox:AddToggle('Aimbot_Shake', { Text = 'Shake', Default = false, Callback = function(v) Aimbot_Shake = v end })
+    local SpeedBox = CombatTab:AddRightGroupbox('Speed & Legit')
+    SpeedBox:AddSlider('Aim_Speed', { Text = 'Speed', Default = 0.3, Min = 0.1, Max = 5, Rounding = 2, Callback = function(v) Aim_Speed = v end })
+    SpeedBox:AddSlider('Aim_SpeedInAttack', { Text = 'Speed in Attack', Default = 0.15, Min = 0.1, Max = 5, Rounding = 2, Callback = function(v) Aim_SpeedInAttack = v end })
+    SpeedBox:AddSlider('Aim_SpeedScale', { Text = 'Speed Scale', Default = 100, Min = 0, Max = 100, Rounding = 0, Suffix = '%', Callback = function(v) Aim_SpeedScale = v end })
+    SpeedBox:AddSlider('Aim_MaxLockOnTime', { Text = 'Max Lock On Time', Default = 0, Min = 0, Max = 10, Rounding = 1, Suffix = 's', Callback = function(v) Aim_MaxLockOnTime = v end })
+    SpeedBox:AddSlider('Aim_ReactionTime', { Text = 'Reaction Time', Default = 0, Min = 0, Max = 500, Rounding = 0, Suffix = 'ms', Callback = function(v) Aim_ReactionTime = v end })
 
     local FOVBox = CombatTab:AddLeftGroupbox('FOV')
     FOVBox:AddToggle('FOV_Enabled', { Text = 'Show FOV', Default = true, Callback = function(v) FOV_Enabled = v end })
