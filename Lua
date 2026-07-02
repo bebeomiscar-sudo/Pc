@@ -182,8 +182,8 @@ function Library:UpdateDependencyBoxes()
     for _, Depbox in next, Library.DependencyBoxes do Depbox:Update(); end;
 end;
 
-function Library:MapValue(Value, MinA, MaxA, MinB, MaxB)
-    return (1 - ((Value - MinA) / (MaxA - MinA))) * MinB + ((Value - MinA) / (MaxA - MinA)) * MaxB;
+function Library:MapValue(value, MinA, MaxA, MinB, MaxB)
+    return (1 - ((value - MinA) / (MaxA - MinA))) * MinB + ((value - MinA) / (MaxA - MinA)) * MaxB;
 end;
 
 function Library:GetTextBounds(Text, Font, Size, Resolution)
@@ -704,7 +704,7 @@ do
             if Input.UserInputType == Enum.UserInputType.MouseButton1 and not Library:MouseIsOverOpenedFrame() then
                 local mPos = Mouse.X;
                 local gPos = Fill.Size.X.Offset;
-                local Diff = mPos - Fill.AbsolutePosition.X; -- Offset from left edge
+                local Diff = mPos - Fill.AbsolutePosition.X;
 
                 while InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
                     local nMPos = Mouse.X;
@@ -888,9 +888,9 @@ do
     local function RunRain(Token, Layer) task.spawn(function() while CurrentToken == Token do if #ActiveParticles < 80 then local LayerSize = GetLayerSize(Layer); local Drop = SpawnRainDrop(Layer); local StartX = math.random(0, math.max(0, LayerSize.X)); Drop.Position = UDim2.fromOffset(StartX, -20); table.insert(ActiveParticles, Drop); task.spawn(function() local Duration = math.random(5, 9) / 10; local FallDistance = LayerSize.Y + 40; local Elapsed = 0; while Drop.Parent and CurrentToken == Token do local Dt = RenderStepped:Wait(); Elapsed = Elapsed + Dt; local Alpha = math.clamp(Elapsed / Duration, 0, 1); Drop.Position = UDim2.fromOffset(StartX, -20 + (FallDistance * Alpha)); if Alpha >= 1 then break; end; end; if Drop.Parent then Drop:Destroy(); end; for i = #ActiveParticles, 1, -1 do if ActiveParticles[i] == Drop then table.remove(ActiveParticles, i); break; end; end; end); end; task.wait(0.025); end; end); end;
     local function RunLightning(Token, Layer) task.spawn(function() while CurrentToken == Token do task.wait(math.random(25, 60) / 10); if CurrentToken ~= Token then break; end; local Flash = Library:Create('Frame', { BackgroundColor3 = Color3.new(1, 1, 1); BackgroundTransparency = 1; Size = UDim2.fromScale(1, 1); ZIndex = Layer.ZIndex + 5; Parent = Layer; }); table.insert(ActiveParticles, Flash); TweenService:Create(Flash, TweenInfo.new(0.05, Enum.EasingStyle.Linear), { BackgroundTransparency = 0.55 }):Play(); task.wait(0.05); TweenService:Create(Flash, TweenInfo.new(0.25, Enum.EasingStyle.Quad), { BackgroundTransparency = 1 }):Play(); task.wait(0.25); if Flash.Parent then Flash:Destroy(); end; for i = #ActiveParticles, 1, -1 do if ActiveParticles[i] == Flash then table.remove(ActiveParticles, i); break; end; end; end; end); end;
     local function StopWeather() CurrentToken = CurrentToken + 1; WeatherRunning = false; ClearParticles(); ScreenLayer.Visible = false; UILayer.Visible = false; end;
-    local function StartWeather() CurrentToken = CurrentToken + 1; local Token = CurrentToken; local Layer = GetActiveLayer(); ClearParticles(); ScreenLayer.Visible = (Library.WeatherScope == 'Screen') and (Library.WeatherEffect ~= 'None'); UILayer.Visible = (Library.WeatherScope == 'UI') and (Library.WeatherEffect <> 'None'); if Library.WeatherEffect == 'Snow' then RunSnow(Token, Layer); elseif Library.WeatherEffect == 'Rain' then RunRain(Token, Layer); elseif Library.WeatherEffect == 'Lightning' then RunLightning(Token, Layer); end; WeatherRunning = Library.WeatherEffect ~= 'None'; end;
+    local function StartWeather() CurrentToken = CurrentToken + 1; local Token = CurrentToken; local Layer = GetActiveLayer(); ClearParticles(); ScreenLayer.Visible = (Library.WeatherScope == 'Screen') and (Library.WeatherEffect ~= 'None'); UILayer.Visible = (Library.WeatherScope == 'UI') and (Library.WeatherEffect ~= 'None'); if Library.WeatherEffect == 'Snow' then RunSnow(Token, Layer); elseif Library.WeatherEffect == 'Rain' then RunRain(Token, Layer); elseif Library.WeatherEffect == 'Lightning' then RunLightning(Token, Layer); end; WeatherRunning = Library.WeatherEffect ~= 'None'; end;
     function Library:SetWeatherEffect(Name) if Name ~= 'None' and Name ~= 'Snow' and Name ~= 'Rain' and Name ~= 'Lightning' then return; end; Library.WeatherEffect = Name; if Name == 'None' then StopWeather(); else StartWeather(); end; end;
-    function Library:SetWeatherScope(Scope) if Scope ~= 'UI' and Scope ~= 'Screen' then return; end; Library.WeatherScope = Scope; if Library.WeatherEffect ~= 'None' then StartWeather(); end; end;
+    function Library:SetWeatherScope(Scope) if Scope ~= 'UI' and Scope <> 'Screen' then return; end; Library.WeatherScope = Scope; if Library.WeatherEffect ~= 'None' then StartWeather(); end; end;
     function Library:_AttachWeatherToWindow(WindowOuter) UILayer.Parent = WindowOuter; UILayer.ZIndex = 50; end;
 end;
 
@@ -1005,7 +1005,9 @@ function Library:CreateWindow(...)
     local WindowScale = Library:Create('UIScale', { Scale = 1; Parent = Outer; });
     Library.WindowScale = WindowScale; Library.WindowOuter = Outer;
 
-    function Window:SetScale(Value) WindowScale.Scale = math.clamp(value, 0.5, 1.5); end;
+    function Window:SetScale(Value)
+        WindowScale.Scale = math.clamp(Value, 0.5, 1.5);
+    end;
 
     function Window:SetTransparency(Value)
         Value = math.clamp(Value, 0, 0.9); Library.MenuTransparency = Value;
