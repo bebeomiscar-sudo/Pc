@@ -182,8 +182,8 @@ function Library:UpdateDependencyBoxes()
     for _, Depbox in next, Library.DependencyBoxes do Depbox:Update(); end;
 end;
 
-function Library:MapValue(value, MinA, MaxA, MinB, MaxB)
-    return (1 - ((value - MinA) / (MaxA - MinA))) * MinB + ((value - MinA) / (MaxA - MinA)) * MaxB;
+function Library:MapValue(Value, MinA, MaxA, MinB, MaxB)
+    return (1 - ((Value - MinA) / (MaxA - MinA))) * MinB + ((Value - MinA) / (MaxA - MinA)) * MaxB;
 end;
 
 function Library:GetTextBounds(Text, Font, Size, Resolution)
@@ -890,7 +890,7 @@ do
     local function StopWeather() CurrentToken = CurrentToken + 1; WeatherRunning = false; ClearParticles(); ScreenLayer.Visible = false; UILayer.Visible = false; end;
     local function StartWeather() CurrentToken = CurrentToken + 1; local Token = CurrentToken; local Layer = GetActiveLayer(); ClearParticles(); ScreenLayer.Visible = (Library.WeatherScope == 'Screen') and (Library.WeatherEffect ~= 'None'); UILayer.Visible = (Library.WeatherScope == 'UI') and (Library.WeatherEffect ~= 'None'); if Library.WeatherEffect == 'Snow' then RunSnow(Token, Layer); elseif Library.WeatherEffect == 'Rain' then RunRain(Token, Layer); elseif Library.WeatherEffect == 'Lightning' then RunLightning(Token, Layer); end; WeatherRunning = Library.WeatherEffect ~= 'None'; end;
     function Library:SetWeatherEffect(Name) if Name ~= 'None' and Name ~= 'Snow' and Name ~= 'Rain' and Name ~= 'Lightning' then return; end; Library.WeatherEffect = Name; if Name == 'None' then StopWeather(); else StartWeather(); end; end;
-    function Library:SetWeatherScope(Scope) if Scope ~= 'UI' and Scope <> 'Screen' then return; end; Library.WeatherScope = Scope; if Library.WeatherEffect ~= 'None' then StartWeather(); end; end;
+    function Library:SetWeatherScope(Scope) if Scope ~= 'UI' and Scope ~= 'Screen' then return; end; Library.WeatherScope = Scope; if Library.WeatherEffect ~= 'None' then StartWeather(); end; end;
     function Library:_AttachWeatherToWindow(WindowOuter) UILayer.Parent = WindowOuter; UILayer.ZIndex = 50; end;
 end;
 
